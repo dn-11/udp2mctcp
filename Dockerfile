@@ -1,10 +1,12 @@
 FROM golang:1.26 as builder
 
-ADD * /src
+ADD . /src
 
 WORKDIR /src
 
-RUN CGO_ENABLED=0 go build -o mctcp
+ENV CGO_ENABLED=0
+
+RUN go build -o mctcp
 
 FROM ubuntu:latest
 
