@@ -16,24 +16,9 @@ before:
     - go generate ./...
 
 builds:
-  - main: ./cmd/mctcp2udp
-    id: mctcp2udp
-    binary: mctcp2udp
-    env:
-      - CGO_ENABLED=0
-    ldflags:
-      - -s -w
-    goos:
-      - linux
-      - windows
-      - darwin
-    goarch:
-      - amd64
-      - arm64
-      - mips64
-  - main: ./cmd/udp2mctcp
-    id: udp2mctcp
-    binary: udp2mctcp
+  - main: .
+    id: mctcp
+    binary: mctcp
     env:
       - CGO_ENABLED=0
     ldflags:

@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/BaiMeow/udp2mctcp/utils"
-	"go.uber.org/zap"
-	"golang.org/x/time/rate"
 	"net"
 	"sync"
 	"time"
+
+	"github.com/BaiMeow/udp2mctcp/utils"
+	"go.uber.org/zap"
+	"golang.org/x/time/rate"
 )
 
 var (
