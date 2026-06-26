@@ -8,10 +8,10 @@ on:
       - "*"
 
 permissions:
-  contents: write
-  # packages: write
-  # issues: write
-  # id-token: write
+    contents: read
+    packages: write
+    attestations: write
+    id-token: write
 
 jobs:
   goreleaser:
