@@ -1,9 +1,10 @@
 package forward
 
 import (
+	"net"
+
 	"github.com/BaiMeow/udp2mctcp/mctcp"
 	"go.uber.org/zap"
-	"net"
 )
 
 func Mctcp2Udp(r mctcp.Reader, conn *net.UDPConn) error {
