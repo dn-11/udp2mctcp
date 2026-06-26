@@ -147,6 +147,9 @@ func createConnection(addr string) (*net.TCPConn, error) {
 	if err := tconn.SetNoDelay(true); err != nil {
 		zap.L().Warn("set nodelay failed", zap.Error(err))
 	}
+	if err := tconn.SetWriteBuffer(1500); err != nil {
+		zap.L().Warn("set write buffer failed", zap.Error(err))
+	}
 	zap.L().Info("new connection", zap.String("conn", fmt.Sprintf("%s <-> %s", conn.LocalAddr().String(), conn.RemoteAddr().String())))
 	return conn.(*net.TCPConn), nil
 }

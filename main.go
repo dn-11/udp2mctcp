@@ -79,7 +79,7 @@ func main() {
 		if err != nil {
 			zap.L().Fatal("dial udp", zap.Error(err))
 		}
-		var buf [1024]byte
+		var buf [1500]byte
 		_, raddr, err := listener.ReadFromUDP(buf[:])
 		zap.L().Info("get remote udp addr", zap.String("addr", raddr.String()))
 		if err != nil {
