@@ -6,11 +6,9 @@ Designed for tunnel ip over tcp.
 
 ## Usage
 
-udp2mctcp 与 mctcp2udp 需要成对使用，
-
 ```bash
-./udp2mctcp -l 127.0.0.1:12345 -f <host:peer_port>
-./mctcp2udp -l <0.0.0.0:listen_port> -f <udp_host:udp_port>
+./mctcp -l udp://listen_udp_ip:port mctcp://mctcp_host:mctcp_port
+./mctcp2udp -l mctcp://mctcp_host:mctcp_port -f udp://dial_udp_ip:port
 ```
 
 ## Example
@@ -18,9 +16,9 @@ udp2mctcp 与 mctcp2udp 需要成对使用，
 如果中间需要代理，可以搭配 gost 使用
 
 ```bash
-./udp2mctcp -l 127.0.0.1:12345 -f 127.0.0.1:12346
+./mctcp -l udp://127.0.0.1:12345 -f mctcp://127.0.0.1:12346
 ./gost -L=tcp://127.0.0.1:12346/<remote_host>:<remote_port> -F=socks5://<socks5_host>:<socks5_port>
-./mctcp2udp -l <0.0.0.0:listen_port> -f <udp_host>:<udp_port>
+./mctcp -l mctcp://0.0.0.0:listen_port -f udp://<udp_host>:<udp_port>
 ```
 
 ## SpeedTest
