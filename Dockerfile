@@ -6,10 +6,12 @@ WORKDIR /src
 
 ENV CGO_ENABLED=0
 
-RUN go build -o mctcp
+RUN go build -o udp2mctcp
 
 FROM ubuntu:latest
 
-COPY --from=builder /src/mctcp /app/mctcp
+COPY --from=builder /src/udp2mctcp /app/udp2mctcp
 
-ENTRYPOINT ["/app/mctcp"]
+WORKDIR /app
+
+ENTRYPOINT ["/app/udp2mctcp"]
