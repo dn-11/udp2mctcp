@@ -1,10 +1,12 @@
 package mctcp
 
 import (
+	"context"
 	"net"
 	"sync/atomic"
 
 	"go.uber.org/zap"
+	"golang.org/x/time/rate"
 )
 
 const (
@@ -22,8 +24,10 @@ type Pool struct {
 	readBuffer  chan []byte
 	writeBuffer chan []byte
 
-	writeCursor atomic.Int32
-	newFunc     func() *net.TCPConn
+	writeCursor      atomic.Int32
+	newFunc          func() *net.TCPConn
+	writeDropLimiter *rate.Limiter
+	readDropLimiter  *rate.Limiter
 }
 
 func NewPool(size int32, create func() *net.TCPConn) *Pool {
@@ -36,6 +40,10 @@ func NewPool(size int32, create func() *net.TCPConn) *Pool {
 		pendingInit: make(chan int, size),
 	}
 	p.newFunc = create
+	dropRate := 10000
+	dropBurst := 512
+	p.writeDropLimiter = rate.NewLimiter(rate.Limit(dropRate), dropBurst)
+	p.readDropLimiter = rate.NewLimiter(rate.Limit(dropRate), dropBurst)
 	// init
 	for i := range p.storage {
 		p.connState[i].Store(connStateUninitialized)
@@ -71,6 +79,7 @@ func (p *Pool) readThread(idx int) {
 		select {
 		case p.readBuffer <- pk:
 		default:
+			_ = p.readDropLimiter.Wait(context.Background())
 		}
 	}
 }
@@ -107,5 +116,6 @@ func (p *Pool) Write(pk []byte) {
 	select {
 	case p.writeBuffer <- pk:
 	default:
+		_ = p.writeDropLimiter.Wait(context.Background())
 	}
 }
