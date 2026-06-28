@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/BaiMeow/udp2mctcp/utils"
@@ -29,7 +30,8 @@ type Client struct {
 	writeBrokenCounter int
 	counterLock        sync.Mutex
 
-	pool *Pool
+	closed atomic.Bool
+	pool   *Pool
 }
 
 func NewClient(ctx context.Context, size int, addr string) (*Client, error) {
@@ -39,12 +41,13 @@ func NewClient(ctx context.Context, size int, addr string) (*Client, error) {
 	c.dialRateLimiter = rate.NewLimiter(rate.Every(time.Second/4), 4)
 	c.ctx = ctx
 	c.pool = NewPool(int32(size), c.mustCreateConn)
+	context.AfterFunc(ctx, func() { c.closed.Store(true) })
 	return c, nil
 }
 
 // Write select an available conn and then write data to it
 func (c *Client) Write(buf []byte) error {
-	if c.Closed() {
+	if c.closed.Load() {
 		return ErrClosed
 	}
 	c.pool.Write(buf)
@@ -52,19 +55,14 @@ func (c *Client) Write(buf []byte) error {
 }
 
 func (c *Client) Read() ([]byte, error) {
-	if c.Closed() {
+	if c.closed.Load() {
 		return nil, ErrClosed
 	}
 	return c.pool.Read(), nil
 }
 
 func (c *Client) Closed() bool {
-	select {
-	case <-c.ctx.Done():
-		return true
-	default:
-		return false
-	}
+	return c.closed.Load()
 }
 
 func (c *Client) mustCreateConn() (tconn *net.TCPConn) {

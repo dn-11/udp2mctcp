@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"sync/atomic"
 
 	"go.uber.org/zap"
 )
@@ -15,6 +16,7 @@ type Server struct {
 
 	listener net.Listener
 	pool     *Pool
+	closed   atomic.Bool
 }
 
 func NewServer(ctx context.Context, size int, addr string) (*Server, error) {
@@ -28,14 +30,21 @@ func NewServer(ctx context.Context, size int, addr string) (*Server, error) {
 	}
 	s.listener = listener
 	s.pool = NewPool(int32(size), s.mustAcceptConn)
+	context.AfterFunc(ctx, func() { s.closed.Store(true) })
 	return s, nil
 }
 
 func (s *Server) Read() ([]byte, error) {
+	if s.closed.Load() {
+		return nil, ErrClosed
+	}
 	return s.pool.Read(), nil
 }
 
 func (s *Server) Write(buf []byte) error {
+	if s.closed.Load() {
+		return ErrClosed
+	}
 	s.pool.Write(buf)
 	return nil
 }
