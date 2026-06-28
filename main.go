@@ -17,14 +17,12 @@ import (
 var (
 	listenUrl  string
 	forwardUrl string
-	connCount  int
 	logLevel   string
 )
 
 func main() {
 	flag.StringVarP(&listenUrl, "listen", "l", "", "udp://addr:port or mctcp://addr:port")
 	flag.StringVarP(&forwardUrl, "forward", "f", "", "udp://addr:port or mctcp://addr:port")
-	flag.IntVarP(&connCount, "tcp-connections", "c", 8, "tcp connection count used by mctcp")
 	flag.StringVar(&logLevel, "log-level", "info", "log level")
 	flag.Parse()
 	level, err := zapcore.ParseLevel(logLevel)
@@ -50,7 +48,7 @@ func main() {
 			zap.L().Fatal("dial udp", zap.Error(err))
 		}
 		udpConn := conn.(*net.UDPConn)
-		mctcpConn, err := mctcp.NewServer(ctx, 16, 4096, parsedListenUrl.Host)
+		mctcpConn, err := mctcp.NewServer(ctx, 16, parsedListenUrl.Host)
 		if err != nil {
 			zap.L().Fatal("create mctcp server", zap.Error(err))
 		}
@@ -90,7 +88,7 @@ func main() {
 		if err != nil {
 			zap.L().Fatal("dial udp", zap.Error(err))
 		}
-		mctcpConn, err := mctcp.NewClient(ctx, 16, 4096, parsedForwardUrl.Host)
+		mctcpConn, err := mctcp.NewClient(ctx, 16, parsedForwardUrl.Host)
 		if err != nil {
 			zap.L().Fatal("create mctcp server", zap.Error(err))
 		}

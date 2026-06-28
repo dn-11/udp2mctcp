@@ -1,21 +1,23 @@
 package utils
 
 import (
-	"go.uber.org/zap"
 	"time"
+
+	"go.uber.org/zap"
 )
 
-func Retry(fn func() error, maxRetry int) error {
+func InfiniteRetry(fn func() error) {
 	var err error
 	var sleepTime = time.Second
-	for i := 0; i < maxRetry; i++ {
+	var retryCount int
+	for {
 		err = fn()
 		if err == nil {
-			return nil
+			return
 		}
-		zap.L().Warn("try failed", zap.Int("retry", i), zap.Error(err))
+		zap.L().Warn("try failed", zap.Int("retry", retryCount), zap.Error(err))
+		retryCount++
 		time.Sleep(sleepTime)
-		sleepTime *= 2
+		sleepTime = min(time.Minute, sleepTime*2)
 	}
-	return err
 }

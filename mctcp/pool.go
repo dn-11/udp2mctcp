@@ -1,140 +1,111 @@
 package mctcp
 
 import (
-	"bufio"
-	"context"
-	"go.uber.org/zap"
 	"net"
-	"sync"
 	"sync/atomic"
+
+	"go.uber.org/zap"
 )
 
-type TcpPool struct {
-	ctx context.Context
+const (
+	connStateAllInuse = iota
+	connStateReadInuse
+	connStateUninitialized
+)
 
-	current atomic.Int32
-	size    atomic.Int32
+type Pool struct {
+	size int32
 
-	// lock for writerPool
-	lock       sync.RWMutex
-	writerPool chan *MarkConn
+	storage     []*net.TCPConn
+	connState   []atomic.Int32
+	pendingInit chan int
+	readBuffer  chan []byte
+	writeBuffer chan []byte
 
-	readBuffer         chan []byte
-	eventTcpReadFailed func(err error)
+	writeCursor atomic.Int32
+	newFunc     func() *net.TCPConn
 }
 
-func NewPool(ctx context.Context, size int, readBufferSize int) *TcpPool {
-	p := &TcpPool{
-		writerPool: make(chan *MarkConn, size),
-		readBuffer: make(chan []byte, readBufferSize),
-		ctx:        ctx,
+func NewPool(size int32, create func() *net.TCPConn) *Pool {
+	p := &Pool{
+		size:        size,
+		storage:     make([]*net.TCPConn, size),
+		connState:   make([]atomic.Int32, size),
+		readBuffer:  make(chan []byte, 512),
+		writeBuffer: make(chan []byte, 512),
+		pendingInit: make(chan int, size),
 	}
-	p.size.Store(int32(size))
-	p.current.Store(0)
+	p.newFunc = create
+	// init
+	for i := range p.storage {
+		p.connState[i].Store(connStateUninitialized)
+		p.pendingInit <- i
+	}
+	zap.L().Debug("new pool", zap.Int32("size", size))
+	go p.spawnerThread()
+	go p.writeThread()
 	return p
 }
 
-func (p *TcpPool) watchTcp(c *MarkConn) {
-	r := bufio.NewReader(c)
-	defer c.Close()
+func (p *Pool) spawnerThread() {
+	for i := range p.pendingInit {
+		p.storage[i] = p.newFunc()
+		go p.readThread(i)
+		p.connState[i].Store(connStateReadInuse)
+	}
+}
+
+func (p *Pool) readThread(idx int) {
+	defer func() {
+		for !p.connState[idx].CompareAndSwap(connStateReadInuse, connStateUninitialized) {
+		}
+		p.pendingInit <- idx
+	}()
 	for {
-		if p.Closed() {
-			return
-		}
-		buf, err := Stream2Packet(r)
+		pk, err := Stream2Packet(p.storage[idx])
+		zap.L().Debug("tcp read", zap.Int("len", len(pk)))
 		if err != nil {
-			zap.L().Debug("read tcp", zap.Error(err))
-			if p.eventTcpReadFailed != nil {
-				p.eventTcpReadFailed(err)
-			}
+			zap.L().Error("read failed", zap.Int("idx", idx), zap.Error(err))
 			return
 		}
-		zap.L().Debug("tcp->",
-			zap.Int("len", len(buf)),
-			zap.String("from", c.RemoteAddr().String()),
-			zap.String("to", c.LocalAddr().String()))
 		select {
-		case p.readBuffer <- buf:
+		case p.readBuffer <- pk:
 		default:
-			zap.L().Debug("read buffer full, drop packet")
-			// drop packet
 		}
 	}
 }
 
-func (p *TcpPool) Closed() bool {
+func (p *Pool) writeThread() {
+	for pk := range p.writeBuffer {
+		var next int32
+		for {
+			c := p.writeCursor.Load()
+			next = (c + 1) % p.size
+			if !p.writeCursor.CompareAndSwap(c, next) {
+				continue
+			}
+			if !p.connState[next].CompareAndSwap(connStateReadInuse, connStateAllInuse) {
+				continue
+			}
+			break
+		}
+		err := Packet2Stream(pk, p.storage[next])
+		zap.L().Debug("tcp write", zap.Int("len", len(pk)))
+		for !p.connState[next].CompareAndSwap(connStateAllInuse, connStateReadInuse) {
+		}
+		if err != nil {
+			zap.L().Warn("write fail", zap.Int("idx", int(next)), zap.Error(err))
+		}
+	}
+}
+
+func (p *Pool) Read() []byte {
+	return <-p.readBuffer
+}
+
+func (p *Pool) Write(pk []byte) {
 	select {
-	case <-p.ctx.Done():
-		return true
+	case p.writeBuffer <- pk:
 	default:
-		return false
 	}
-}
-
-func (p *TcpPool) Push(conn *net.TCPConn) {
-	cur := p.current.Add(1)
-	zap.L().Debug("add connection", zap.Int("current", int(cur)))
-RETRY:
-	oldCurrent := p.current.Load()
-	oldSize := p.size.Load()
-	if oldCurrent > oldSize {
-		if !p.size.CompareAndSwap(oldSize, oldSize*2) {
-			goto RETRY
-		}
-		// enlarge
-		zap.L().Debug("enlarge writer pool", zap.Int("newsize", int(oldSize*2)))
-		p.lock.Lock()
-		oldPool := p.writerPool
-		p.writerPool = make(chan *MarkConn, oldSize*2)
-		close(oldPool)
-		for c := range oldPool {
-			p.writerPool <- c
-		}
-		p.lock.Unlock()
-	}
-	p.lock.RLock()
-	markConn := NewMarkConn(conn)
-	p.writerPool <- markConn
-	p.lock.RUnlock()
-	go p.watchTcp(markConn)
-}
-
-func (p *TcpPool) RegisterTcpReadFailed(fn func(err error)) {
-	p.eventTcpReadFailed = fn
-}
-
-func (p *TcpPool) Read() ([]byte, error) {
-	select {
-	case <-p.ctx.Done():
-		return nil, ErrClosed
-	case buf := <-p.readBuffer:
-		return buf, nil
-	}
-}
-
-func (p *TcpPool) Write(buf []byte) error {
-	if p.Closed() {
-		return ErrClosed
-	}
-	p.lock.RLock()
-RETRY:
-	select {
-	case conn := <-p.writerPool:
-		if !conn.IsAvailable() {
-			goto RETRY
-		}
-		p.lock.RUnlock()
-		if err := Packet2Stream(buf, conn); err != nil {
-			p.current.Add(-1)
-			return err
-		}
-		p.lock.RLock()
-		zap.L().Debug("->tcp", zap.Int("len", len(buf)))
-		p.writerPool <- conn
-		p.lock.RUnlock()
-	default:
-		// drop packet
-		p.lock.RUnlock()
-	}
-	return nil
 }
