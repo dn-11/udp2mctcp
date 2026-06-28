@@ -3,8 +3,11 @@ package main
 import (
 	"context"
 	"net"
+	"net/http"
 	"net/netip"
 	"net/url"
+
+	_ "net/http/pprof"
 
 	"github.com/BaiMeow/udp2mctcp/forward"
 	"github.com/BaiMeow/udp2mctcp/log"
@@ -18,12 +21,14 @@ var (
 	listenUrl  string
 	forwardUrl string
 	logLevel   string
+	pprof      bool
 )
 
 func main() {
 	flag.StringVarP(&listenUrl, "listen", "l", "", "udp://addr:port or mctcp://addr:port")
 	flag.StringVarP(&forwardUrl, "forward", "f", "", "udp://addr:port or mctcp://addr:port")
 	flag.StringVar(&logLevel, "log-level", "info", "log level")
+	flag.BoolVar(&pprof, "pprof", false, "enable pprof")
 	flag.Parse()
 	level, err := zapcore.ParseLevel(logLevel)
 	if err != nil {
@@ -32,6 +37,10 @@ func main() {
 	log.Init(level)
 	if err != nil {
 		zap.L().Warn("prase log level fail, use info", zap.Error(err), zap.String("arg", logLevel))
+	}
+	if pprof {
+		go http.ListenAndServe("0.0.0.0:6060", nil)
+		zap.L().Info("pprof running at localhost:6060")
 	}
 	parsedListenUrl, err := url.Parse(listenUrl)
 	if err != nil {
