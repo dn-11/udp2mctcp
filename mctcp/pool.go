@@ -86,6 +86,19 @@ func (p *Pool) readThread(idx int) {
 
 func (p *Pool) writeThread() {
 	for pk := range p.writeBuffer {
+		var pks [][]byte
+		pks = append(pks, pk)
+		for i := 0; i < 7; i++ {
+			select {
+			case pk2, ok := <-p.writeBuffer:
+				if !ok {
+					return
+				}
+				pks = append(pks, pk2)
+			default:
+				break
+			}
+		}
 		var next int32
 		for {
 			c := p.writeCursor.Load()
@@ -98,8 +111,12 @@ func (p *Pool) writeThread() {
 			}
 			break
 		}
-		err := Packet2Stream(pk, p.storage[next])
-		zap.L().Debug("tcp write", zap.Int("len", len(pk)))
+		err := BatchPacket2Stream(pks, p.storage[next])
+		var totalLen int
+		for _, pk := range pks {
+			totalLen += len(pk)
+		}
+		zap.L().Debug("tcp write", zap.Int("len", totalLen))
 		for !p.connState[next].CompareAndSwap(connStateAllInuse, connStateReadInuse) {
 		}
 		if err != nil {

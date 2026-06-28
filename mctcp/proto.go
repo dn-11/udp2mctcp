@@ -38,3 +38,29 @@ func Packet2Stream(data []byte, w io.Writer) error {
 	}
 	return nil
 }
+
+func BatchPacket2Stream(data [][]byte, w io.Writer) error {
+	totalLen := len(data) * 2
+	for _, pk := range data {
+		if len(pk) > 65535 {
+			return errors.New("some packet too long")
+		}
+		totalLen += len(pk)
+	}
+	buf := make([]byte, totalLen)
+	var i int
+	for _, pk := range data {
+		binary.BigEndian.PutUint16(buf[i:], uint16(len(pk)))
+		i += 2
+		copy(buf[i:], pk)
+		i += len(pk)
+	}
+	n, err := w.Write(buf)
+	if err != nil {
+		return errors.Join(ErrBrokenConn, err)
+	}
+	if n != len(buf) {
+		return errors.Join(ErrBrokenConn, errors.New("write not complete"))
+	}
+	return nil
+}
